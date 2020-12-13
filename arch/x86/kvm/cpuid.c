@@ -18,11 +18,16 @@
 #include <asm/processor.h>
 #include <asm/user.h>
 #include <asm/fpu/xstate.h>
+#include <asm/atomic.h>
 #include "cpuid.h"
 #include "lapic.h"
 #include "mmu.h"
 #include "trace.h"
 #include "pmu.h"
+
+atomic_t single_exit_array[69] = ATOMIC_INIT(0);	
+EXPORT_SYMBOL(single_exit_array);	
+	
 
 /*
  * Unlike "struct cpuinfo_x86.x86_capability", kvm_cpu_caps doesn't need to be
@@ -1115,13 +1120,42 @@ EXPORT_SYMBOL_GPL(kvm_cpuid);
 int kvm_emulate_cpuid(struct kvm_vcpu *vcpu)
 {
 	u32 eax, ebx, ecx, edx;
-
-	if (cpuid_fault_enabled(vcpu) && !kvm_require_cpl(vcpu, 0))
-		return 1;
-
+	
 	eax = kvm_rax_read(vcpu);
+	ebx = kvm_rbx_read(vcpu);
 	ecx = kvm_rcx_read(vcpu);
-	kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, false);
+	edx = kvm_rdx_read(vcpu);
+	
+	printk(KERN_INFO "CPUID(0x4FFFFFFE), eax=%u, ebx=%u, ecx=%u, edx=%u \n", eax, ebx, ecx, edx);
+	
+	if(eax == 0x4FFFFFFE) {
+		if(ecx == 35 || ecx == 38 || ecx == 42 || ecx == 65 || ecx >= 69) {	
+			eax = 0x00000000;	
+			ebx = 0x00000000;	
+			ecx = 0x00000000;	
+			edx = 0xffffffff;	
+			printk(KERN_INFO "Inside first if CPUID(0x4FFFFFFE), eax=%u, ebx=%u, ecx=%u, edx=%u \n", eax, ebx, ecx, edx);
+		} else if (ecx == 3 || ecx == 4 || ecx == 5 || ecx == 6 || ecx == 11 || ecx == 16 || ecx == 17 || ecx == 33 || ecx == 34 || ecx == 51 || ecx == 61 ) {	
+			eax = 0x00000000;	
+			ebx = 0x00000000;	
+			ecx = 0x00000000;	
+			edx = 0x00000000;
+
+            printk(KERN_INFO "Inside second if CPUID(0x4FFFFFFE), eax=%u, ebx=%u, ecx=%u, edx=%u \n", eax, ebx, ecx, edx);	
+		} else {
+
+			printk(KERN_INFO "Inside third if CPUID(0x4FFFFFFE), eax=%u, ebx=%u, ecx=%u, edx=%u \n", eax, ebx, ecx, edx);
+			eax = atomic_read(&single_exit_array[ecx]);	
+		}	
+		kvm_rax_write(vcpu, eax);
+		kvm_rbx_write(vcpu, ebx);	
+		kvm_rcx_write(vcpu, ecx);	
+		kvm_rdx_write(vcpu, edx);	
+	} else{
+        printk(KERN_INFO "Inside else CPUID(0x4FFFFFFE), eax=%u, ebx=%u, ecx=%u, edx=%u \n", eax, ebx, ecx, edx);		
+		kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, true);	
+	}
+
 	kvm_rax_write(vcpu, eax);
 	kvm_rbx_write(vcpu, ebx);
 	kvm_rcx_write(vcpu, ecx);
